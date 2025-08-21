@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YT → MP3/MP4 letöltő (saját használatra)</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <h1>YT → MP3/MP4</h1>
+        <p class="subtitle">Egyszerű letöltő saját/engedélyezett tartalmakhoz</p>
+      </div>
+    </header>
+
+    <main class="container">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="flash">
+            {% for msg in messages %}<div class="flash-item">{{ msg }}</div>{% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <section class="card">
+        <h2>Videó letöltése</h2>
+        <form method="post" action="/download" class="form">
+          <label for="url">YouTube URL</label>
+          <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+
+          <label for="format">Formátum</label>
+          <select id="format" name="format">
+            <option value="mp4">MP4 (videó)</option>
+            <option value="mp3">MP3 (hang)</option>
+          </select>
+
+          <button type="submit" class="btn">Letöltés</button>
+        </form>
+
+        <p class="hint">
+          Csak saját vagy kifejezetten engedélyezett tartalom letöltésére használd,
+          tartsd be a YouTube ÁSZF-et.
+        </p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <small>© {{ 2025 }} Saját projekt – oktatási célra</small>
+      </div>
+    </footer>
+  </body>
+</html>
