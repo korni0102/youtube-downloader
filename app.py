@@ -11,6 +11,8 @@ import yt_dlp
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 
+COOKIE_SECRET_PATH = "/etc/secrets/cookies.txt"  # Render Secret Files
+
 def safe_name(s: str) -> str:
     s = re.sub(r"[^\w\s-]", "", s).strip()
     s = re.sub(r"[\s_-]+", "-", s)
@@ -24,27 +26,26 @@ def index():
 def healthz():
     return "ok", 200
 
-def download_with_ytdlp(url: str, fmt: str, tmpdir: str) -> str:
-    cookie_env = os.environ.get("YTDLP_COOKIES")
-    cookiefile = None
-    if cookie_env:
-        cookiefile = os.path.join(tmpdir, "cookies.txt")
-        with open(cookiefile, "w", encoding="utf-8") as f:
-            f.write(cookie_env)
-
-    ydl_opts = {
+def build_ytdlp_opts(tmpdir: str, fmt: str) -> dict:
+    """
+    Összerakja az yt-dlp opciókat. Ha van secret cookies.txt, hozzáadja.
+    """
+    opts = {
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "noplaylist": True,
         "restrictfilenames": True,
         "quiet": True,
         "no_warnings": True,
+        # kevésbé gyanús kliens
         "extractor_args": { "youtube": { "player_client": ["android"] } },
     }
-    if cookiefile:
-        ydl_opts["cookiefile"] = cookiefile
+
+    # Secret cookies fájl (ha létezik a Renderen)
+    if os.path.exists(COOKIE_SECRET_PATH):
+        opts["cookiefile"] = COOKIE_SECRET_PATH
 
     if fmt == "mp3":
-        ydl_opts.update({
+        opts.update({
             "format": "bestaudio/best",
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -53,23 +54,33 @@ def download_with_ytdlp(url: str, fmt: str, tmpdir: str) -> str:
             }],
         })
     else:
-        ydl_opts.update({
+        opts.update({
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "merge_output_format": "mp4",
         })
+    return opts
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+def run_ytdlp(url: str, fmt: str, tmpdir: str) -> str:
+    """
+    Letölt/konvertál yt-dlp-vel a tmpdir-be, és visszaadja a kész fájl abszolút elérési útját.
+    """
+    opts = build_ytdlp_opts(tmpdir, fmt)
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         base = ydl.prepare_filename(info)
         title = safe_name(info.get("title") or "download")
         ext = "mp3" if fmt == "mp3" else "mp4"
-        final_path = os.path.join(tmpdir, f"{title}.{ext}")
-        if not os.path.exists(final_path):
+        target = os.path.join(tmpdir, f"{title}.{ext}")
+
+        # Ha a fenti név nem létezik, keressük meg a legutóbb írt azonos kiterjesztésű fájlt
+        if not os.path.exists(target):
             candidates = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.lower().endswith("." + ext)]
-            final_path = max(candidates, key=os.path.getmtime) if candidates else os.path.splitext(base)[0] + f".{ext}"
-        return final_path
-
-
+            if candidates:
+                target = max(candidates, key=os.path.getmtime)
+            else:
+                target = os.path.splitext(base)[0] + f".{ext}"
+        return target
 
 @app.route("/download", methods=["POST"])
 def download():
@@ -81,6 +92,7 @@ def download():
     if fmt not in ("mp3", "mp4"):
         fmt = "mp4"
 
+    # Saját temp mappa — a választ KÖVETŐEN töröljük
     tmpdir = tempfile.mkdtemp(prefix="yt-")
 
     @after_this_request
@@ -92,17 +104,17 @@ def download():
         return response
 
     try:
-        final_path = download_with_ytdlp(url, fmt, tmpdir)
+        final_path = run_ytdlp(url, fmt, tmpdir)
         if not os.path.exists(final_path):
-            flash("Nem sikerült a letöltés/konvertálás.")
+            flash("Nem sikerült a letöltés/konvertálás (lehet, hogy a videó korlátozott).")
             return redirect(url_for("index"))
 
         filename = os.path.basename(final_path)
         return send_file(final_path, as_attachment=True, download_name=filename)
 
-    except yt_dlp.utils.YoutubeDLError as e:
-        print(f"[YT-DLP ERROR] {e}", flush=True)
-        flash("YouTube letöltési hiba (lehet, hogy a videó korlátozott vagy nem támogatott).")
+    except yt_dlp.utils.ExtractorError as e:
+        print(f"[YT-DLP ExtractorError] {e}", flush=True)
+        flash("YouTube letöltési hiba (bot ellenőrzés vagy korlátozott videó).")
         return redirect(url_for("index"))
     except Exception as e:
         print(f"[ERROR] {e}", flush=True)
