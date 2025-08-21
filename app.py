@@ -2,7 +2,11 @@ import os
 import re
 import tempfile
 import subprocess
-from flask import Flask, request, send_file, render_template, flash, redirect, url_for
+import shutil
+from flask import (
+    Flask, request, send_file, render_template, flash,
+    redirect, url_for, after_this_request
+)
 from pytube import YouTube
 
 app = Flask(__name__)
@@ -38,39 +42,52 @@ def download():
 
     title = safe_name(yt.title)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    # KÉZZEL létrehozott temp mappa, amit csak a válasz UTÁN törlünk
+    tmpdir = tempfile.mkdtemp(prefix="yt-")
+
+    @after_this_request
+    def cleanup(response):
         try:
-            if fmt == "mp3":
-                # audio stream letöltése (webm/m4a lehet)
-                audio_stream = yt.streams.filter(only_audio=True).first()
-                if not audio_stream:
-                    flash("Nem találtam audio streamet.")
-                    return redirect(url_for("index"))
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+        return response
 
-                src_path = audio_stream.download(output_path=tmpdir, filename="audio_src")
-                dst_path = os.path.join(tmpdir, f"{title}.mp3")
+    try:
+        if fmt == "mp3":
+            audio_stream = yt.streams.filter(only_audio=True).first()
+            if not audio_stream:
+                flash("Nem találtam audio streamet.")
+                return redirect(url_for("index"))
 
-                # ffmpeg konvertálás CBR 192 kbps MP3-ra
-                cmd = ["ffmpeg", "-y", "-i", src_path, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", dst_path]
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            # forrás letöltése (pl. .webm vagy .m4a)
+            src_path = audio_stream.download(output_path=tmpdir, filename="audio_src")
+            dst_path = os.path.join(tmpdir, f"{title}.mp3")
 
-                return send_file(dst_path, as_attachment=True, download_name=f"{title}.mp3")
+            # ffmpeg konvertálás 192 kbps MP3-ra
+            cmd = ["ffmpeg", "-y", "-i", src_path, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", dst_path]
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
-            else:
-                video_stream = yt.streams.get_highest_resolution()
-                if not video_stream:
-                    flash("Nem találtam videó streamet.")
-                    return redirect(url_for("index"))
+            # A fájl a válasz küldése közben is megmarad, mert a törlés csak utána fut
+            return send_file(dst_path, as_attachment=True, download_name=f"{title}.mp3")
 
-                mp4_path = video_stream.download(output_path=tmpdir, filename=f"{title}.mp4")
-                return send_file(mp4_path, as_attachment=True, download_name=f"{title}.mp4")
+        else:
+            video_stream = yt.streams.get_highest_resolution()
+            if not video_stream:
+                flash("Nem találtam videó streamet.")
+                return redirect(url_for("index"))
 
-        except subprocess.CalledProcessError:
-            flash("Hiba az ffmpeg konvertálás közben.")
-            return redirect(url_for("index"))
-        except Exception as e:
-            flash(f"Hiba történt: {e}")
-            return redirect(url_for("index"))
+            mp4_path = video_stream.download(output_path=tmpdir, filename=f"{title}.mp4")
+            return send_file(mp4_path, as_attachment=True, download_name=f"{title}.mp4")
+
+    except subprocess.CalledProcessError:
+        flash("Hiba az ffmpeg konvertálás közben.")
+        return redirect(url_for("index"))
+    except Exception as e:
+        # Hibák naplózása Render logba
+        print(f"[ERROR] {e}", flush=True)
+        flash(f"Hiba történt: {e}")
+        return redirect(url_for("index"))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
