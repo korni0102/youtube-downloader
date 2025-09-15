@@ -51,17 +51,29 @@ def pick_cookiefile(tmpdir: str) -> str | None:
 
     return cf
 
-def build_ytdlp_opts(tmpdir: str, fmt: str) -> dict:
+def build_ytdlp_opts(tmpdir: str, fmt: str, player_client: str | None = None) -> dict:
+    """
+    Összerakja az yt-dlp opciókat. A player_client lehet: 'android', 'ios', 'web'.
+    """
     opts = {
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "noplaylist": True,
         "restrictfilenames": True,
         "quiet": True,
         "no_warnings": True,
-        # kevésbé gyanús kliens
-        "extractor_args": { "youtube": { "player_client": ["android"] } },
+        "force_ipv4": True,              # néha ez segít a hívásoknál
+        "retries": 3,
+        "fragment_retries": 3,
+        "retry_sleep": "1,2,3",
     }
 
+    # kevésbé gyanús kliens – opciósan állítjuk
+    if player_client:
+        opts.setdefault("extractor_args", {})
+        opts["extractor_args"].setdefault("youtube", {})
+        opts["extractor_args"]["youtube"]["player_client"] = [player_client]
+
+    # cookies forrás
     cookiefile = pick_cookiefile(tmpdir)
     if cookiefile:
         opts["cookiefile"] = cookiefile
@@ -82,18 +94,35 @@ def build_ytdlp_opts(tmpdir: str, fmt: str) -> dict:
         })
     return opts
 
+
 def run_ytdlp(url: str, fmt: str, tmpdir: str) -> str:
-    opts = build_ytdlp_opts(tmpdir, fmt)
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        base = ydl.prepare_filename(info)
-        title = safe_name(info.get("title") or "download")
-        ext = "mp3" if fmt == "mp3" else "mp4"
-        target = os.path.join(tmpdir, f"{title}.{ext}")
-        if not os.path.exists(target):
-            candidates = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.lower().endswith("." + ext)]
-            target = max(candidates, key=os.path.getmtime) if candidates else os.path.splitext(base)[0] + f".{ext}"
-        return target
+    """
+    Több klienssel (android → ios → web) próbál letölteni.
+    """
+    clients_to_try = ["android", "ios", "web"]
+
+    last_err = None
+    for client in clients_to_try:
+        try:
+            opts = build_ytdlp_opts(tmpdir, fmt, player_client=client)
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                base = ydl.prepare_filename(info)
+                title = safe_name(info.get("title") or "download")
+                ext = "mp3" if fmt == "mp3" else "mp4"
+                target = os.path.join(tmpdir, f"{title}.{ext}")
+                if not os.path.exists(target):
+                    candidates = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.lower().endswith("." + ext)]
+                    target = max(candidates, key=os.path.getmtime) if candidates else os.path.splitext(base)[0] + f".{ext}"
+                print(f"[yt-dlp] success with client='{client}'", flush=True)
+                return target
+        except Exception as e:
+            last_err = e
+            print(f"[yt-dlp] failed with client='{client}': {e}", flush=True)
+            continue
+
+    # ha mindhárom kliens elbukott, dobjuk a hibát
+    raise last_err if last_err else RuntimeError("yt-dlp: unknown error")
 
 # --- Publikus oldalak ---
 @app.route("/", methods=["GET"])
