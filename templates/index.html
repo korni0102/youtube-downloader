@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YT → MP3/MP4 letöltő (saját használatra)</title>
+    <title>YT → MP3/MP4 letöltő (portfólió projekt)</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
     <header class="header">
       <div class="container">
-        <h1>YT → MP3/MP4</h1>
-        <p class="subtitle">Egyszerű letöltő saját/engedélyezett tartalmakhoz</p>
+        <h1>YT → MP3/MP4 Downloader</h1>
+        <p class="subtitle">Flask + yt-dlp + ffmpeg • oktatási és saját/engedélyezett tartalomhoz</p>
       </div>
     </header>
 
@@ -24,8 +24,8 @@
       {% endwith %}
 
       <section class="card">
-        <h2>Videó letöltése</h2>
-        <form method="post" action="/download" class="form">
+        <h2>Letöltés</h2>
+        <form method="post" action="/download" class="form" onsubmit="loading(true)">
           <label for="url">YouTube URL</label>
           <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
 
@@ -35,20 +35,37 @@
             <option value="mp3">MP3 (hang)</option>
           </select>
 
-          <button type="submit" class="btn">Letöltés</button>
+          <button id="btn" type="submit" class="btn">Letöltés</button>
+          <div id="hint" class="hint" hidden>Letöltés és konvertálás folyamatban… ez pár másodperc lehet.</div>
         </form>
 
-        <p class="hint">
-          Csak saját vagy kifejezetten engedélyezett tartalom letöltésére használd,
-          tartsd be a YouTube ÁSZF-et.
+        <p class="legal">
+          <strong>Figyelem:</strong> A YouTube ÁSZF szerint csak a saját vagy kifejezetten engedélyezett
+          tartalmak letöltése megengedett. Ez a projekt oktatási célból készült.
+        </p>
+        <p class="meta">
+          <a href="https://github.com/YOUR_USERNAME/YOUR_REPO" target="_blank">Forráskód a GitHubon</a> •
+          <a href="/healthz" target="_blank">Health check</a>
         </p>
       </section>
     </main>
 
     <footer class="footer">
       <div class="container">
-        <small>© {{ 2025 }} Saját projekt – oktatási célra</small>
+        <small>© {{ 2025 }} Portfolio demo • Flask • yt-dlp • ffmpeg</small>
       </div>
     </footer>
+
+    <script>
+      function loading(on) {
+        const btn = document.getElementById('btn');
+        const hint = document.getElementById('hint');
+        if (on) {
+          btn.disabled = true;
+          btn.textContent = 'Folyamatban…';
+          hint.hidden = false;
+        }
+      }
+    </script>
   </body>
 </html>
